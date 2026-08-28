@@ -179,11 +179,10 @@ function page() {
     <meta name="description" content="Pinboard is a shared team board for links, notes, and decisions.">
     <title>${APP.name}</title>
     <style>${CSS}</style>
-    <link rel="stylesheet" href="/style.css">
   </head>
   <body>
     <div id="app">${guestMarkup()}</div>
-    <script type="module" src="/app.js"></script>
+    <script>${CLIENT}</script>
   </body>
 </html>`;
 }
@@ -191,8 +190,8 @@ function page() {
 const CSS = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 :root{--paper:#f6f1e8;--ink:#18212b;--muted:#5f6b78;--line:#e5d7bf;--card:#fffdf8;--shadow:0 28px 60px rgba(24,33,43,.11)}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,#fff7df 0,#f6f1e8 38%,#efe9dd 100%);color:var(--ink);font:15px 'IBM Plex Sans',sans-serif}a{color:inherit}.shell{min-height:100vh;padding:28px}.frame{max-width:1400px;margin:0 auto}.mast{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:22px}.brand{display:flex;align-items:center;gap:12px}.badge{width:42px;height:42px;border-radius:14px;background:#18212b;color:#fff;display:grid;place-items:center;font-weight:700;box-shadow:var(--shadow)}.brand b{display:block}.brand small,.muted{color:var(--muted)}.button,.ghost{appearance:none;border:0;border-radius:14px;padding:14px 18px;font:600 15px 'IBM Plex Sans',sans-serif;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.button{background:#18212b;color:#fff}.ghost{background:#fff;border:1px solid var(--line)}
-.board{display:grid;grid-template-columns:repeat(6,minmax(200px,1fr));gap:16px;overflow-x:auto;padding-bottom:16px}
-.column{background:rgba(255,253,248,.7);border:1px solid var(--line);border-radius:18px;padding:14px;min-height:300px}
+.board{display:flex;gap:16px;overflow-x:auto;padding-bottom:16px;align-items:stretch}
+.column{flex:1 0 210px;min-width:210px;background:rgba(255,253,248,.7);border:1px solid var(--line);border-radius:18px;padding:14px;min-height:300px}
 .column-title{font:700 16px/1.2 'Fraunces',serif;margin:0 0 12px;padding:0 4px;letter-spacing:-.02em}
 .column-cards{min-height:60px;display:flex;flex-direction:column;gap:10px}
 .column-cards.drag-over{background:rgba(229,215,191,.3);border-radius:12px}
@@ -333,7 +332,7 @@ load();`;
 function asset(pathname) {
   if (pathname === "/") {
     return new Response(page(), {
-      headers: { "content-type": "text/html; charset=utf-8" },
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
     });
   }
   if (pathname === "/style.css") {

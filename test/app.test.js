@@ -14,8 +14,9 @@ test("serves a distinct shell for the pinboard landing page", async () => {
   assert.match(html, /<title>Pinboard<\/title>/);
   assert.match(html, /shared team board for links, notes, and decisions/i);
   assert.match(html, /<style>/);
-  assert.match(html, /app\.js/);
-  assert.match(html, /style\.css/);
+  assert.match(html, /<script>/);
+  assert.doesNotMatch(html, /src=["']\/app\.js/);
+  assert.doesNotMatch(html, /href=["']\/style\.css/);
 });
 
 test("GET / HTML includes all six column labels", async () => {
@@ -56,28 +57,21 @@ test("serves separate JS and CSS assets", async () => {
   assert.match(await css.text(), /Fraunces/);
 });
 
-test("/app.js is syntactically valid", async () => {
-  const js = await (
-    await worker.fetch(new Request("https://x/app.js"), {})
-  ).text();
-  assert.doesNotThrow(() => new Function(js), "app.js must parse without syntax errors");
-});
+function inlineScript(html) {
+  const match = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(match, "GET / must include an inline script");
+  return match[1];
+}
 
-test("/app.js includes dragstart and drop event handling", async () => {
-  const js = await (
-    await worker.fetch(new Request("https://x/app.js"), {})
-  ).text();
-  assert.match(js, /dragstart/, "app.js must handle dragstart");
-  assert.match(js, /drop/, "app.js must handle drop");
-  assert.match(js, /dragover/, "app.js must handle dragover");
-  assert.match(js, /dataTransfer/, "app.js must use dataTransfer");
-});
-
-test("/app.js includes localStorage guest moves without login", async () => {
-  const js = await (
-    await worker.fetch(new Request("https://x/app.js"), {})
-  ).text();
-  assert.match(js, /localStorage/, "app.js must use localStorage for guest moves");
+test("GET / inlines JS so Anyship cannot rewrite it onto the CDN", async () => {
+  const html = await (await worker.fetch(new Request("https://x/"), {})).text();
+  const js = inlineScript(html);
+  assert.doesNotThrow(() => new Function(js), "inline script must parse");
+  assert.match(js, /dragstart/);
+  assert.match(js, /drop/);
+  assert.match(js, /dragover/);
+  assert.match(js, /dataTransfer/);
+  assert.match(js, /localStorage/);
 });
 
 test("PATCH /api/pins/:id/status returns 401 without session", async () => {
