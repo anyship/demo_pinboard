@@ -1,10 +1,239 @@
-const C={"name": "Pinboard", "hero": "Small teams, perfectly in sync.", "copy": "Save the links, decisions and bright ideas that keep your team moving \u2014 without another meeting.", "kicker": "TEAM WORKSPACE", "section": "Team pins", "placeholder": "Pin a link, note or idea\u2026", "icon": "\u2197", "action": "\u25b2", "detail": "Shared with your team"};
-export const parseCookies=(v='')=>Object.fromEntries(String(v||'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return[x.slice(0,i),decodeURIComponent(x.slice(i+1))]}));
-export const sessionToken=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
-const j=(x,s=200,h={})=>new Response(JSON.stringify(x),{status:s,headers:{'content-type':'application/json',...h}});
-async function init(db){for(const q of["CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id TEXT,name TEXT,email TEXT)","CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id TEXT,title TEXT,detail TEXT,votes INTEGER DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP)"])await db.prepare(q).run()}
-async function verify(t,e){try{const[a,b,c]=t.split('.'),k=await crypto.subtle.importKey('raw',new TextEncoder().encode(e.ANYSHIP_AUTH_SECRET),{name:'HMAC',hash:'SHA-256'},false,['verify']),d=x=>Uint8Array.from(atob(x.replace(/-/g,'+').replace(/_/g,'/')),z=>z.charCodeAt(0));if(!await crypto.subtle.verify('HMAC',k,d(c),new TextEncoder().encode(a+'.'+b)))return null;const v=JSON.parse(new TextDecoder().decode(d(b)));return v.exp>Date.now()/1000?v:null}catch{return null}}
-function page(){return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${C.name}</title><style>${CSS}</style></head><body><div id="app"></div><script>const C=${JSON.stringify(C)};${CLIENT}</script></body></html>`}
-const CSS=`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Manrope:wght@700;800&display=swap');*{box-sizing:border-box}body{margin:0;background:#f4f6f1;color:#17251d;font:14px 'DM Sans',sans-serif}.login{min-height:100vh;display:grid;grid-template-columns:1.1fr .9fr}.hero{background:#173429;color:white;padding:7vw;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;position:relative}.hero:after{content:'';width:440px;height:440px;border-radius:50%;background:#dafa72;position:absolute;right:-220px;bottom:-220px}.brand{font:800 22px Manrope}.hero h1{font:800 clamp(50px,6vw,86px)/.98 Manrope;letter-spacing:-.06em;max-width:700px;margin:15vh 0 25px}.hero p{color:#bed0c4;font-size:18px;line-height:1.6;max-width:570px}.signin{display:grid;place-items:center;padding:7vw}.card,.panel,.stat{background:white;border:1px solid #e0e7dd;border-radius:22px}.card{padding:42px;width:min(430px,100%);box-shadow:0 30px 80px #17342918}.card h2,h1{font-family:Manrope}.google,.add,.vote{border:0;border-radius:11px;padding:13px 17px;font-weight:700;cursor:pointer}.google{width:100%;background:white;border:1px solid #d8ded6;margin-top:25px;font-size:15px}.layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}.side{background:#173429;color:white;padding:30px 24px;display:flex;flex-direction:column}.nav{padding:12px;margin-top:20px;background:#ffffff12;border-radius:10px}.profile{margin-top:auto;color:#b9c9bf}.main{padding:42px clamp(22px,5vw,72px)}header{display:flex;justify-content:space-between;align-items:center}.add{background:#dafa72}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:30px 0}.stat{padding:20px}.stat b{display:block;font:800 30px Manrope;margin-top:8px}.panel{padding:24px}.form{display:grid;grid-template-columns:1fr 1.4fr auto;gap:10px;margin:20px 0}input{padding:13px;border:1px solid #dbe2d8;border-radius:10px;font:inherit}.item{display:grid;grid-template-columns:45px 1fr auto;gap:14px;align-items:center;border-top:1px solid #e8ece6;padding:15px 4px}.icon{background:#edf5ce;border-radius:12px;padding:13px;text-align:center}.item h3{margin:0 0 4px}.item p,.muted{margin:0;color:#77827b}.vote{background:#eff3ec}@media(max-width:700px){.login{grid-template-columns:1fr}.hero{min-height:48vh;padding:35px}.hero h1{font-size:48px;margin:60px 0 15px}.signin{padding:25px}.layout{grid-template-columns:1fr}.side{display:none}.main{padding:25px 16px}.form{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.stat:last-child{display:none}}`;
-const CLIENT=`const r=document.querySelector('#app'),esc=s=>String(s||'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));function login(){r.innerHTML='<main class="login"><section class="hero"><b class="brand">✳ '+C.name+'</b><div><h1>'+C.hero+'</h1><p>'+C.copy+'</p></div><small>Made for small, effective teams.</small></section><section class="signin"><div class="card"><small class="muted">WELCOME TO '+C.name.toUpperCase()+'</small><h2>Your team is waiting.</h2><p class="muted">Sign in to open your private workspace.</p><button class="google">Ⓖ &nbsp; Sign in with Google</button></div></section></main>';r.querySelector('.google').addEventListener('click',function(){location.href='/login'})}async function load(){const q=await fetch('/api/me');if(q.status===401)return login();const d=await q.json();r.innerHTML='<div class="layout"><aside class="side"><b class="brand">✳ '+C.name+'</b><div class="nav">◫ &nbsp; Overview</div><div class="profile"><b>'+esc(d.user.name)+'</b><br><small>'+esc(d.user.email)+'</small><br><br><a style="color:#dafa72" href="/logout">Sign out</a></div></aside><main class="main"><header><div><small class="muted">'+C.kicker+'</small><h1>Good morning, '+esc(d.user.name.split(' ')[0])+'</h1></div><button class="add" id="focus-input">+ Add item</button></header><div class="stats"><div class="stat">Total items<b>'+d.items.length+'</b></div><div class="stat">Open now<b>'+d.items.length+'</b></div><div class="stat">Team pulse<b>94%</b></div></div><section class="panel"><h2>'+C.section+'</h2><form class="form"><input name="title" required placeholder="'+C.placeholder+'"><input name="detail" placeholder="Add a short note"><button class="add">Add</button></form><div>'+d.items.map(x=>'<article class="item"><div class="icon">'+C.icon+'</div><div><h3>'+esc(x.title)+'</h3><p>'+esc(x.detail||C.detail)+'</p></div><button class="vote" data-id="'+x.id+'">'+C.action+' '+(x.votes||'')+'</button></article>').join('')+'</div></section></main></div>';document.getElementById('focus-input').addEventListener('click',function(){document.querySelector('input').focus()});document.querySelector('form').onsubmit=async e=>{e.preventDefault();await fetch('/api/items',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});load()};document.querySelectorAll('[data-id]').forEach(b=>b.onclick=async()=>{await fetch('/api/items/'+b.dataset.id,{method:'PATCH'});load()})}load();`;
-export default{async fetch(req,env){const u=new URL(req.url);if(u.pathname==='/api/health')return j({ok:true});if(u.pathname==='/')return new Response(page(),{headers:{'content-type':'text/html;charset=utf-8'}});if(u.pathname==='/login'){const x=new URL(String(env.ANYSHIP_AUTH_URL).replace(/\/$/,'')+'/broker/authorize');for(const[k,v]of Object.entries({app:env.ANYSHIP_AUTH_APP_ID,provider:'google',redirect_uri:u.origin+'/auth/callback'}))x.searchParams.set(k,v);return Response.redirect(x)}if(u.pathname==='/auth/callback'){const c=await verify(u.searchParams.get('anyship_token')||'',env);if(!c)return new Response('Sign-in failed',{status:401});await init(env.DB);const t=sessionToken();await env.DB.prepare('INSERT INTO sessions VALUES(?,?,?,?)').bind(t,c.sub,c.name||'Teammate',c.email||'').run();return new Response(null,{status:302,headers:{location:'/','set-cookie':`session=${t}; HttpOnly; Secure; SameSite=Lax; Path=/`}})}if(u.pathname==='/logout')return new Response(null,{status:302,headers:{location:'/','set-cookie':'session=; Max-Age=0; Path=/'}});await init(env.DB);const t=parseCookies(req.headers.get('cookie')).session,s=t&&await env.DB.prepare('SELECT * FROM sessions WHERE token=?').bind(t).first();if(!s)return j({error:'unauthorized'},401);if(u.pathname==='/api/me')return j({user:s,items:(await env.DB.prepare('SELECT * FROM items WHERE user_id=? ORDER BY id DESC').bind(s.user_id).all()).results});if(u.pathname==='/api/items'&&req.method==='POST'){const b=await req.json();await env.DB.prepare('INSERT INTO items(user_id,title,detail) VALUES(?,?,?)').bind(s.user_id,String(b.title||'').slice(0,80),String(b.detail||'').slice(0,160)).run();return j({ok:true},201)}if(u.pathname.startsWith('/api/items/')&&req.method==='PATCH'){await env.DB.prepare('UPDATE items SET votes=votes+1 WHERE id=? AND user_id=?').bind(+u.pathname.split('/').pop(),s.user_id).run();return j({ok:true})}return j({error:'not found'},404)}};
+const SEEDED_PINS = [
+  { title: 'Launch checklist', note: 'Final items before go-live' },
+  { title: 'Brand color palette', note: 'Coral, sand, navy — approved by design' },
+  { title: 'Weekly standup notes', note: 'Async updates every Monday' },
+  { title: 'API design doc', note: 'REST endpoints v2 proposal' },
+  { title: 'Coffee chat schedule', note: 'Rotating pairs for July' },
+  { title: 'Q3 roadmap draft', note: 'Features + timeline in one page' },
+  { title: 'Team offsite ideas', note: 'Cooking class? Escape room?' },
+  { title: 'Design review feedback', note: 'Notes from last Thursday' },
+];
+
+export const parseCookies = (v = '') =>
+  Object.fromEntries(
+    String(v || '').split(';').map(x => x.trim()).filter(Boolean).map(x => {
+      const i = x.indexOf('=');
+      return [x.slice(0, i), decodeURIComponent(x.slice(i + 1))];
+    })
+  );
+
+export const sessionToken = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(32)), x =>
+    x.toString(16).padStart(2, '0')
+  ).join('');
+
+const json = (x, s = 200, h = {}) =>
+  new Response(JSON.stringify(x), {
+    status: s,
+    headers: { 'content-type': 'application/json', ...h },
+  });
+
+const esc = s => String(s || '').replace(/[&<>"]/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])
+);
+
+async function initDB(db) {
+  for (const q of [
+    'CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id TEXT, name TEXT, email TEXT)',
+    'CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, title TEXT, detail TEXT, votes INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+  ]) await db.prepare(q).run();
+}
+
+async function verifyToken(t, env) {
+  try {
+    const [a, b, c] = t.split('.');
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(env.ANYSHIP_AUTH_SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const decode = x =>
+      Uint8Array.from(atob(x.replace(/-/g, '+').replace(/_/g, '/')), z => z.charCodeAt(0));
+    if (!await crypto.subtle.verify('HMAC', key, decode(c), new TextEncoder().encode(a + '.' + b)))
+      return null;
+    const payload = JSON.parse(new TextDecoder().decode(decode(b)));
+    return payload.exp > Date.now() / 1000 ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderPinCard(pin, idx) {
+  const colors = ['#fef3e2', '#e8f4f8', '#fce4ec', '#e8f5e9', '#fff3e0', '#ede7f6', '#fff8e1', '#e3f2fd'];
+  const bg = colors[idx % colors.length];
+  return `<div class="pin" style="background:${bg}"><h3>${esc(pin.title)}</h3><p>${esc(pin.note)}</p></div>`;
+}
+
+function renderPage(user, items) {
+  const pins = items || SEEDED_PINS;
+  const pinCards = pins.map((p, i) => renderPinCard(p, i)).join('');
+  const isAuthed = !!user;
+
+  const userBar = isAuthed
+    ? `<div class="user-bar"><span>Hey, <b>${esc(user.name.split(' ')[0])}</b></span><a href="/logout" class="sign-out">Sign out</a></div>`
+    : `<a href="/login" class="sign-in-btn">Sign in with Google</a>`;
+
+  const addForm = isAuthed
+    ? `<form class="add-form" id="add-form"><input name="title" required placeholder="Pin a title\u2026" maxlength="80"><input name="detail" placeholder="Note or URL (optional)" maxlength="160"><button type="submit" class="add-btn">Pin it</button></form>`
+    : `<p class="guest-hint">Sign in to pin your own cards</p>`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pinboard</title>
+<style>${CSS}</style>
+</head>
+<body>
+<header class="top-bar">
+  <h1 class="logo">Pinboard</h1>
+  ${userBar}
+</header>
+<main class="board">
+  ${addForm}
+  <div class="pin-wall">${pinCards}</div>
+</main>
+<script>${CLIENT(isAuthed)}</script>
+</body>
+</html>`;
+}
+
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#faf7f4;color:#2d2a26;font:15px/1.5 'Inter',system-ui,sans-serif;min-height:100vh}
+.top-bar{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid #ebe6e0}
+.logo{font-size:20px;font-weight:700;color:#c0562b;letter-spacing:-.02em}
+.sign-in-btn{background:#fff;border:1px solid #d4cfc8;border-radius:8px;padding:8px 16px;font:500 14px inherit;color:#2d2a26;text-decoration:none;cursor:pointer;transition:box-shadow .15s}
+.sign-in-btn:hover{box-shadow:0 2px 8px #0001}
+.user-bar{display:flex;align-items:center;gap:14px;font-size:14px}
+.sign-out{color:#9a8e82;font-size:13px;text-decoration:none}
+.sign-out:hover{color:#c0562b}
+.board{max-width:900px;margin:0 auto;padding:32px 24px}
+.add-form{display:flex;gap:10px;margin-bottom:28px;flex-wrap:wrap}
+.add-form input{flex:1;min-width:140px;padding:12px 14px;border:1px solid #ddd7cf;border-radius:10px;font:inherit;background:#fff}
+.add-form input:focus{outline:none;border-color:#c0562b;box-shadow:0 0 0 3px #c0562b18}
+.add-btn{background:#c0562b;color:#fff;border:none;border-radius:10px;padding:12px 20px;font:600 14px inherit;cursor:pointer}
+.add-btn:hover{background:#a8481f}
+.guest-hint{color:#9a8e82;font-size:14px;margin-bottom:20px;font-style:italic}
+.pin-wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.pin{border-radius:14px;padding:20px;border:1px solid #ebe6e0;transition:transform .12s,box-shadow .12s}
+.pin:hover{transform:translateY(-2px);box-shadow:0 6px 20px #0001}
+.pin h3{font-size:15px;font-weight:600;margin-bottom:6px;color:#2d2a26}
+.pin p{font-size:13px;color:#6b635a;line-height:1.4}
+@media(max-width:600px){.top-bar{padding:14px 16px}.board{padding:20px 14px}.add-form{flex-direction:column}.pin-wall{grid-template-columns:1fr 1fr}}
+@media(max-width:380px){.pin-wall{grid-template-columns:1fr}}
+`.trim();
+
+function CLIENT(isAuthed) {
+  if (!isAuthed) {
+    return `document.querySelector(".sign-in-btn").addEventListener("click",function(e){e.preventDefault();location.href="/login"});`;
+  }
+  return `(function(){
+var form=document.getElementById("add-form");
+if(form){form.addEventListener("submit",function(e){
+e.preventDefault();
+var fd=new FormData(form);
+var body=JSON.stringify({title:fd.get("title"),detail:fd.get("detail")});
+fetch("/api/items",{method:"POST",headers:{"content-type":"application/json"},body:body}).then(function(){location.reload()});
+});}
+})();`;
+}
+
+export default {
+  async fetch(req, env) {
+    const url = new URL(req.url);
+
+    if (url.pathname === '/api/health') return json({ ok: true });
+
+    if (url.pathname === '/login') {
+      const authUrl = new URL(
+        String(env.ANYSHIP_AUTH_URL).replace(/\/$/, '') + '/broker/authorize'
+      );
+      authUrl.searchParams.set('app', env.ANYSHIP_AUTH_APP_ID);
+      authUrl.searchParams.set('provider', 'google');
+      authUrl.searchParams.set('redirect_uri', url.origin + '/auth/callback');
+      return Response.redirect(authUrl);
+    }
+
+    if (url.pathname === '/auth/callback') {
+      const claims = await verifyToken(url.searchParams.get('anyship_token') || '', env);
+      if (!claims) return new Response('Sign-in failed', { status: 401 });
+      await initDB(env.DB);
+      const tok = sessionToken();
+      await env.DB.prepare('INSERT INTO sessions VALUES(?,?,?,?)')
+        .bind(tok, claims.sub, claims.name || 'Teammate', claims.email || '')
+        .run();
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: '/',
+          'set-cookie': `session=${tok}; HttpOnly; Secure; SameSite=Lax; Path=/`,
+        },
+      });
+    }
+
+    if (url.pathname === '/logout') {
+      return new Response(null, {
+        status: 302,
+        headers: { location: '/', 'set-cookie': 'session=; Max-Age=0; Path=/' },
+      });
+    }
+
+    // Try to identify the user (optional for page render)
+    let session = null;
+    if (env.DB) {
+      const tok = parseCookies(req.headers.get('cookie')).session;
+      if (tok) {
+        await initDB(env.DB);
+        session = await env.DB.prepare('SELECT * FROM sessions WHERE token=?').bind(tok).first();
+      }
+    }
+
+    if (url.pathname === '/') {
+      let userItems = null;
+      if (session && env.DB) {
+        const rows = await env.DB.prepare('SELECT * FROM items WHERE user_id=? ORDER BY id DESC')
+          .bind(session.user_id).all();
+        if (rows.results && rows.results.length > 0) {
+          userItems = rows.results.map(r => ({ title: r.title, note: r.detail || '' }));
+        }
+      }
+      const pins = userItems || SEEDED_PINS;
+      const html = renderPage(session, pins);
+      return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
+    }
+
+    // API routes below require auth
+    if (!session) return json({ error: 'unauthorized' }, 401);
+
+    if (url.pathname === '/api/me') {
+      await initDB(env.DB);
+      const items = (await env.DB.prepare('SELECT * FROM items WHERE user_id=? ORDER BY id DESC')
+        .bind(session.user_id).all()).results;
+      return json({ user: session, items });
+    }
+
+    if (url.pathname === '/api/items' && req.method === 'POST') {
+      const body = await req.json();
+      await initDB(env.DB);
+      await env.DB.prepare('INSERT INTO items(user_id,title,detail) VALUES(?,?,?)')
+        .bind(session.user_id, String(body.title || '').slice(0, 80), String(body.detail || '').slice(0, 160))
+        .run();
+      return json({ ok: true }, 201);
+    }
+
+    if (url.pathname.startsWith('/api/items/') && req.method === 'PATCH') {
+      await initDB(env.DB);
+      await env.DB.prepare('UPDATE items SET votes=votes+1 WHERE id=? AND user_id=?')
+        .bind(+url.pathname.split('/').pop(), session.user_id)
+        .run();
+      return json({ ok: true });
+    }
+
+    return json({ error: 'not found' }, 404);
+  },
+};
