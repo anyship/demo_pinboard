@@ -7,8 +7,16 @@ const APP = {
   section: "Pinned items",
 };
 
-const STATUSES = ["backlog", "in-play", "done"];
-const STATUS_LABELS = { backlog: "Backlog", "in-play": "In play", done: "Done" };
+export const STATUSES = ["backlog", "ready", "in-play", "review", "blocked", "done"];
+
+export const STATUS_LABELS = {
+  backlog: "Backlog",
+  ready: "Ready",
+  "in-play": "In play",
+  review: "Review",
+  blocked: "Blocked",
+  done: "Done",
+};
 
 const json = (value, status = 200, headers = {}) =>
   new Response(JSON.stringify(value), {
@@ -20,29 +28,50 @@ const SEEDED_PINS = [
   {
     title: "Launch brief for the September release",
     url: "https://example.com/launch-brief",
-    note:
-      "The one-pager with timeline, owners, and cutover notes for the release review.",
+    note: "The one-pager with timeline, owners, and cutover notes for the release review.",
     category: "Launch",
-    saves: 8,
     status: "in-play",
+    saves: 8,
   },
   {
     title: "Customer interview highlights",
     url: "https://example.com/customer-notes",
-    note:
-      "Useful quotes to reuse in onboarding, homepage messaging, and the sales deck.",
+    note: "Useful quotes to reuse in onboarding, homepage messaging, and the sales deck.",
     category: "Research",
+    status: "review",
     saves: 5,
-    status: "backlog",
   },
   {
     title: "Design inspiration board",
     url: "https://example.com/design-board",
-    note:
-      "A shared visual reference for the refreshed dashboard treatment and motion direction.",
+    note: "A shared visual reference for the refreshed dashboard treatment and motion direction.",
     category: "Design",
+    status: "backlog",
     saves: 3,
+  },
+  {
+    title: "API deprecation timeline",
+    url: "https://example.com/api-deprecation",
+    note: "Track which endpoints sunset in Q4 and what clients need migration.",
+    category: "Engineering",
+    status: "ready",
+    saves: 4,
+  },
+  {
+    title: "Onboarding flow feedback",
+    url: "https://example.com/onboarding-feedback",
+    note: "Consolidated notes from the last three user tests on the new signup wizard.",
+    category: "Product",
+    status: "blocked",
+    saves: 6,
+  },
+  {
+    title: "Shipped: dashboard redesign",
+    url: "https://example.com/dashboard-v2",
+    note: "The new dashboard went live. Metrics show 20% engagement lift in the first week.",
+    category: "Launch",
     status: "done",
+    saves: 12,
   },
 ];
 
@@ -66,7 +95,7 @@ export const sessionToken = () =>
 async function init(db) {
   for (const query of [
     "CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id TEXT,name TEXT,email TEXT)",
-    "CREATE TABLE IF NOT EXISTS pins(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id TEXT,title TEXT,url TEXT,note TEXT,category TEXT,saves INTEGER DEFAULT 0,status TEXT DEFAULT 'backlog',created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+    "CREATE TABLE IF NOT EXISTS pins(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id TEXT,title TEXT,url TEXT,note TEXT,category TEXT,status TEXT DEFAULT 'backlog',saves INTEGER DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
   ]) {
     await db.prepare(query).run();
   }
@@ -80,8 +109,8 @@ export async function ensureSeedPins(db, userId) {
   if (Number(existing?.count || 0) > 0) return false;
   for (const pin of SEEDED_PINS) {
     await db
-      .prepare("INSERT INTO pins(user_id,title,url,note,category,saves,status) VALUES(?,?,?,?,?,?,?)")
-      .bind(userId, pin.title, pin.url, pin.note, pin.category, pin.saves, pin.status)
+      .prepare("INSERT INTO pins(user_id,title,url,note,category,status,saves) VALUES(?,?,?,?,?,?,?)")
+      .bind(userId, pin.title, pin.url, pin.note, pin.category, pin.status, pin.saves)
       .run();
   }
   return true;
@@ -118,18 +147,27 @@ async function verify(token, env) {
   }
 }
 
-function kanbanCards(pins) {
-  return pins.map((pin) =>
-    `<article class="kanban-card" data-id="${pin.id || ''}" data-status="${pin.status}"><div class="card-category">${pin.category || 'General'}</div><h3>${pin.title}</h3><p>${pin.note || ''}</p>${pin.url ? `<a href="${pin.url}" target="_blank" rel="noreferrer">${pin.url}</a>` : ''}<div class="card-meta"><span>${pin.saves || 0} boosts</span></div></article>`
+const esc = (value) =>
+  String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+function renderCard(pin, index) {
+  return `<article class="card" draggable="true" data-pin-id="${pin.id || index}" data-status="${esc(pin.status)}"><div class="card-head"><h3>${esc(pin.title)}</h3>${pin.url ? `<a href="${esc(pin.url)}" target="_blank" rel="noreferrer">${esc(pin.url)}</a>` : ""}</div><p>${esc(pin.note)}</p><div class="card-meta"><span class="chip">${esc(pin.category)}</span><span class="saves">▲ ${pin.saves || 0}</span></div><div class="card-actions">${STATUSES.filter((s) => s !== pin.status).map((s) => `<button class="move-btn" data-target="${s}">${STATUS_LABELS[s]}</button>`).join("")}</div></article>`;
+}
+
+function renderBoard(pins) {
+  return STATUSES.map(
+    (status) =>
+      `<section class="column" data-status="${status}"><h2 class="column-title">${STATUS_LABELS[status]}</h2><div class="column-cards" data-status="${status}">${pins.filter((p) => p.status === status).map((p, i) => renderCard(p, i)).join("")}</div></section>`,
   ).join("");
 }
 
-function kanbanMarkup() {
-  const columns = STATUSES.map((status) => {
-    const columnPins = SEEDED_PINS.filter((p) => p.status === status);
-    return `<section class="kanban-column" data-status="${status}"><div class="column-header"><h2>${STATUS_LABELS[status]}</h2><span class="column-count">${columnPins.length}</span></div><div class="column-body">${kanbanCards(columnPins.map((p, i) => ({ ...p, id: `seed-${i}-${status}` })))}</div></section>`;
-  }).join("");
-  return `<div class="shell"><div class="frame"><header class="mast"><div class="brand"><div class="badge">↗</div><div><b>Pinboard</b><small>Drag notes between columns to organise your board</small></div></div><a href="/login" class="ghost">Sign in</a></header><main class="kanban-board">${columns}</main></div></div>`;
+function guestMarkup() {
+  const pins = SEEDED_PINS.map((p, i) => ({ ...p, id: `seed-${i}` }));
+  return `<div class="shell"><div class="frame"><header class="mast"><div class="brand"><div class="badge">↗</div><div><b>Pinboard</b><small>Shared team board for links, notes, and decisions</small></div></div><a href="/login" class="ghost">Sign in</a></header><div class="board">${renderBoard(pins)}</div></div></div>`;
 }
 
 function page() {
@@ -144,111 +182,152 @@ function page() {
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
-    <div id="app">${kanbanMarkup()}</div>
+    <div id="app">${guestMarkup()}</div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>`;
 }
 
 const CSS = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
-:root{--paper:#f6f1e8;--ink:#18212b;--muted:#5f6b78;--line:#e5d7bf;--card:#fffdf8;--coral:#fff0ea;--coral-dark:#a1452d;--shadow:0 28px 60px rgba(24,33,43,.11)}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,#fff7df 0,#f6f1e8 38%,#efe9dd 100%);color:var(--ink);font:15px 'IBM Plex Sans',sans-serif}a{color:inherit}.shell{min-height:100vh;padding:28px}.frame{max-width:1280px;margin:0 auto}.mast{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:22px}.brand{display:flex;align-items:center;gap:12px}.badge{width:42px;height:42px;border-radius:14px;background:#18212b;color:#fff;display:grid;place-items:center;font-weight:700;box-shadow:var(--shadow)}.brand b{display:block}.brand small,.muted{color:var(--muted)}.button,.ghost,.save{appearance:none;border:0;border-radius:14px;padding:14px 18px;font:600 15px 'IBM Plex Sans',sans-serif;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.button{background:#18212b;color:#fff}.ghost{background:#fff;border:1px solid var(--line)}.kanban-board{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;min-height:70vh}.kanban-column{background:rgba(255,253,248,.7);border:1px solid var(--line);border-radius:22px;padding:16px;display:flex;flex-direction:column;min-height:300px}.column-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}.column-header h2{font:700 20px/1 'Fraunces',serif;margin:0}.column-count{background:var(--coral);color:var(--coral-dark);font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px}.column-body{flex:1;display:flex;flex-direction:column;gap:12px;min-height:60px}.column-body.drag-over{background:rgba(255,240,234,.5);border-radius:14px}.kanban-card{padding:16px;background:var(--card);border:1px solid var(--line);border-radius:16px;cursor:grab;transition:box-shadow .15s,transform .15s}.kanban-card:hover{box-shadow:var(--shadow);transform:translateY(-2px)}.kanban-card.dragging{opacity:.5;transform:rotate(2deg)}.kanban-card h3{margin:0 0 6px;font-size:16px;line-height:1.3}.kanban-card p{margin:0 0 8px;color:#4c5967;font-size:14px;line-height:1.5}.kanban-card a{color:#2d5bd1;text-decoration:none;font-size:13px;word-break:break-all}.card-category{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;color:#7c6b56;text-transform:uppercase;margin-bottom:8px}.card-meta{display:flex;justify-content:space-between;align-items:center;color:#7c6b56;font-size:12px;margin-top:8px}.move-buttons{display:flex;gap:4px;margin-top:8px}.move-btn{appearance:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;font-weight:600}.move-btn:hover{background:var(--coral);color:var(--coral-dark);border-color:var(--coral-dark)}.composer{display:grid;grid-template-columns:1.2fr 1.2fr .8fr auto;gap:10px;margin-bottom:18px;padding:16px;background:rgba(255,253,248,.88);border:1px solid var(--line);border-radius:22px}.composer input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:#fff;font:inherit}@media (max-width:900px){.kanban-board{grid-template-columns:1fr}.composer{grid-template-columns:1fr}.mast{flex-direction:column;align-items:flex-start}}`;
+:root{--paper:#f6f1e8;--ink:#18212b;--muted:#5f6b78;--line:#e5d7bf;--card:#fffdf8;--shadow:0 28px 60px rgba(24,33,43,.11)}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,#fff7df 0,#f6f1e8 38%,#efe9dd 100%);color:var(--ink);font:15px 'IBM Plex Sans',sans-serif}a{color:inherit}.shell{min-height:100vh;padding:28px}.frame{max-width:1400px;margin:0 auto}.mast{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:22px}.brand{display:flex;align-items:center;gap:12px}.badge{width:42px;height:42px;border-radius:14px;background:#18212b;color:#fff;display:grid;place-items:center;font-weight:700;box-shadow:var(--shadow)}.brand b{display:block}.brand small,.muted{color:var(--muted)}.button,.ghost{appearance:none;border:0;border-radius:14px;padding:14px 18px;font:600 15px 'IBM Plex Sans',sans-serif;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.button{background:#18212b;color:#fff}.ghost{background:#fff;border:1px solid var(--line)}
+.board{display:grid;grid-template-columns:repeat(6,minmax(200px,1fr));gap:16px;overflow-x:auto;padding-bottom:16px}
+.column{background:rgba(255,253,248,.7);border:1px solid var(--line);border-radius:18px;padding:14px;min-height:300px}
+.column-title{font:700 16px/1.2 'Fraunces',serif;margin:0 0 12px;padding:0 4px;letter-spacing:-.02em}
+.column-cards{min-height:60px;display:flex;flex-direction:column;gap:10px}
+.column-cards.drag-over{background:rgba(229,215,191,.3);border-radius:12px}
+.card{padding:14px;background:var(--card);border:1px solid var(--line);border-radius:16px;cursor:grab;user-select:none;transition:box-shadow .15s,transform .15s}
+.card:active{cursor:grabbing}
+.card.dragging{opacity:.5;transform:rotate(2deg)}
+.card-head h3{margin:0 0 4px;font-size:15px;line-height:1.3}
+.card-head a{color:#2d5bd1;text-decoration:none;font-size:13px;word-break:break-all}
+.card p{margin:6px 0;color:#4c5967;font-size:13px;line-height:1.5}
+.card-meta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.card-meta .chip{padding:4px 8px;border-radius:999px;background:#fff0ea;color:#a1452d;font-weight:600;font-size:11px;letter-spacing:.04em}
+.card-meta .saves{font-weight:600}
+.card-actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.move-btn{appearance:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;color:var(--muted)}
+.move-btn:hover{background:var(--paper);color:var(--ink)}
+@media(max-width:900px){.board{grid-template-columns:1fr}.mast{flex-direction:column;align-items:flex-start}}`;
 
-const CLIENT = `const APP=${JSON.stringify(APP)};
-const STATUSES=${JSON.stringify(STATUSES)};
+const CLIENT = `const STATUSES=${JSON.stringify(STATUSES)};
 const STATUS_LABELS=${JSON.stringify(STATUS_LABELS)};
 const root=document.querySelector('#app');
 const esc=(v)=>String(v||'').replace(/[&<>"]/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-function getGuestMoves(){try{return JSON.parse(localStorage.getItem('pinboard_moves')||'{}');}catch(e){return {};}}
-function setGuestMove(id,status){const moves=getGuestMoves();moves[id]=status;localStorage.setItem('pinboard_moves',JSON.stringify(moves));}
+function getGuestMoves(){
+  try{return JSON.parse(localStorage.getItem('pinboard_moves')||'{}');}catch(e){return {};}
+}
+function saveGuestMove(pinId,newStatus){
+  const moves=getGuestMoves();
+  moves[pinId]=newStatus;
+  localStorage.setItem('pinboard_moves',JSON.stringify(moves));
+}
 
 function applyGuestMoves(pins){
   const moves=getGuestMoves();
-  return pins.map(p=>{const override=moves[p.id]||moves[String(p.id)];return override?{...p,status:override}:p;});
-}
-
-function renderCard(pin,isGuest){
-  const currentIdx=STATUSES.indexOf(pin.status);
-  let moveHtml='<div class="move-buttons">';
-  STATUSES.forEach((s,i)=>{if(i!==currentIdx)moveHtml+='<button class="move-btn" data-move-id="'+(pin.id)+'" data-move-to="'+s+'">→ '+STATUS_LABELS[s]+'</button>';});
-  moveHtml+='</div>';
-  return '<article class="kanban-card" draggable="true" data-id="'+pin.id+'" data-status="'+pin.status+'"><div class="card-category">'+esc(pin.category||'General')+'</div><h3>'+esc(pin.title)+'</h3><p>'+esc(pin.note||'')+'</p>'+(pin.url?'<a href="'+esc(pin.url)+'" target="_blank" rel="noreferrer">'+esc(pin.url)+'</a>':'')+'<div class="card-meta"><span>'+(pin.saves||0)+' boosts</span></div>'+moveHtml+'</article>';
-}
-
-function renderBoard(pins,user){
-  const isGuest=!user;
-  let html='<div class="shell"><div class="frame"><header class="mast"><div class="brand"><div class="badge">↗</div><div><b>Pinboard</b><small>Drag notes between columns to organise your board</small></div></div>';
-  if(user)html+='<div class="muted">'+esc(user.email)+' · <a href="/logout">Sign out</a></div>';
-  else html+='<a href="/login" class="ghost">Sign in</a>';
-  html+='</header>';
-  if(user)html+='<form class="composer"><input name="title" required placeholder="New note title..."><input name="url" placeholder="https://..."><input name="category" placeholder="Category"><button class="button">Add to Backlog</button></form>';
-  html+='<main class="kanban-board">';
-  STATUSES.forEach(status=>{
-    const colPins=pins.filter(p=>p.status===status);
-    html+='<section class="kanban-column" data-status="'+status+'"><div class="column-header"><h2>'+STATUS_LABELS[status]+'</h2><span class="column-count">'+colPins.length+'</span></div><div class="column-body" data-drop="'+status+'">';
-    colPins.forEach(p=>{html+=renderCard(p,isGuest);});
-    html+='</div></section>';
-  });
-  html+='</main></div></div>';
-  root.innerHTML=html;
-  bindDragDrop(isGuest);
-  bindMoveButtons(isGuest);
-  if(user)bindComposer();
-}
-
-function bindDragDrop(isGuest){
-  const cards=document.querySelectorAll('.kanban-card');
-  const dropZones=document.querySelectorAll('[data-drop]');
-  cards.forEach(card=>{
-    card.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',card.dataset.id);card.classList.add('dragging');});
-    card.addEventListener('dragend',()=>{card.classList.remove('dragging');dropZones.forEach(z=>z.classList.remove('drag-over'));});
-  });
-  dropZones.forEach(zone=>{
-    zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag-over');});
-    zone.addEventListener('dragleave',()=>{zone.classList.remove('drag-over');});
-    zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag-over');const id=e.dataTransfer.getData('text/plain');const newStatus=zone.dataset.drop;moveCard(id,newStatus,isGuest);});
+  return pins.map(p=>{
+    const override=moves[p.id];
+    return override&&STATUSES.includes(override)?{...p,status:override}:p;
   });
 }
 
-function bindMoveButtons(isGuest){
-  document.querySelectorAll('[data-move-id]').forEach(btn=>{
-    btn.addEventListener('click',()=>{moveCard(btn.dataset.moveId,btn.dataset.moveTo,isGuest);});
+function renderCard(pin){
+  return '<article class="card" draggable="true" data-pin-id="'+esc(pin.id)+'" data-status="'+esc(pin.status)+'"><div class="card-head"><h3>'+esc(pin.title)+'</h3>'+(pin.url?'<a href="'+esc(pin.url)+'" target="_blank" rel="noreferrer">'+esc(pin.url)+'</a>':'')+'</div><p>'+esc(pin.note)+'</p><div class="card-meta"><span class="chip">'+esc(pin.category)+'</span><span class="saves">▲ '+(pin.saves||0)+'</span></div><div class="card-actions">'+STATUSES.filter(s=>s!==pin.status).map(s=>'<button class="move-btn" data-target="'+s+'">'+STATUS_LABELS[s]+'</button>').join('')+'</div></article>';
+}
+
+function renderBoard(pins){
+  return '<div class="shell"><div class="frame"><header class="mast"><div class="brand"><div class="badge">↗</div><div><b>Pinboard</b><small>Shared team board for links, notes, and decisions</small></div></div><a href="/login" class="ghost">Sign in</a></header><div class="board">'+STATUSES.map(status=>'<section class="column" data-status="'+status+'"><h2 class="column-title">'+STATUS_LABELS[status]+'</h2><div class="column-cards" data-status="'+status+'">'+pins.filter(p=>p.status===status).map(p=>renderCard(p)).join('')+'</div></section>').join('')+'</div></div></div>';
+}
+
+function moveCard(pinId,newStatus,isAuthenticated){
+  saveGuestMove(pinId,newStatus);
+  if(isAuthenticated){
+    fetch('/api/pins/'+pinId+'/status',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({status:newStatus})}).catch(()=>{});
+  }
+  refreshBoard();
+}
+
+let currentPins=[];
+let isAuthenticated=false;
+
+function refreshBoard(){
+  const pins=applyGuestMoves(currentPins);
+  root.innerHTML=renderBoard(pins);
+  bindDragListeners();
+  bindMoveButtons();
+}
+
+function bindDragListeners(){
+  document.querySelectorAll('.card[draggable="true"]').forEach(card=>{
+    card.addEventListener('dragstart',function(e){
+      e.dataTransfer.setData('text/plain',this.dataset.pinId);
+      e.dataTransfer.effectAllowed='move';
+      this.classList.add('dragging');
+    });
+    card.addEventListener('dragend',function(){
+      this.classList.remove('dragging');
+      document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));
+    });
+  });
+  document.querySelectorAll('.column-cards').forEach(col=>{
+    col.addEventListener('dragover',function(e){
+      e.preventDefault();
+      e.dataTransfer.dropEffect='move';
+      this.classList.add('drag-over');
+    });
+    col.addEventListener('dragleave',function(){
+      this.classList.remove('drag-over');
+    });
+    col.addEventListener('drop',function(e){
+      e.preventDefault();
+      this.classList.remove('drag-over');
+      const pinId=e.dataTransfer.getData('text/plain');
+      const newStatus=this.dataset.status;
+      if(pinId&&newStatus&&STATUSES.includes(newStatus)){
+        moveCard(pinId,newStatus,isAuthenticated);
+      }
+    });
   });
 }
 
-function moveCard(id,newStatus,isGuest){
-  if(isGuest){setGuestMove(id,newStatus);loadGuest();}
-  else{fetch('/api/pins/'+id+'/status',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({status:newStatus})}).then(()=>load());}
-}
-
-function bindComposer(){
-  const form=document.querySelector('.composer');
-  if(!form)return;
-  form.onsubmit=async(e)=>{e.preventDefault();const fd=new FormData(form);const payload=Object.fromEntries(fd);await fetch('/api/pins',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});load();};
-}
-
-const SEEDED_PINS=${JSON.stringify(SEEDED_PINS.map((p, i) => ({ ...p, id: 'seed-' + i })))};
-
-function loadGuest(){
-  const pins=applyGuestMoves(SEEDED_PINS);
-  renderBoard(pins,null);
+function bindMoveButtons(){
+  document.querySelectorAll('.move-btn').forEach(btn=>{
+    btn.addEventListener('click',function(e){
+      e.stopPropagation();
+      const card=this.closest('.card');
+      if(card){
+        moveCard(card.dataset.pinId,this.dataset.target,isAuthenticated);
+      }
+    });
+  });
 }
 
 async function load(){
   try{
-    const r=await fetch('/api/me');
-    if(r.status===401){loadGuest();return;}
-    if(!r.ok)throw new Error('Failed');
-    const data=await r.json();
-    const pins=applyGuestMoves(Array.isArray(data.pins)?data.pins:[]);
-    renderBoard(pins,data.user);
-  }catch(err){
-    loadGuest();
-    console.error(err);
+    const response=await fetch('/api/me');
+    if(response.status===401){
+      currentPins=${JSON.stringify(SEEDED_PINS.map((p, i) => ({ ...p, id: "seed-" + i })))};
+      isAuthenticated=false;
+    }else if(response.ok){
+      const data=await response.json();
+      currentPins=data.pins||[];
+      isAuthenticated=true;
+    }else{
+      currentPins=${JSON.stringify(SEEDED_PINS.map((p, i) => ({ ...p, id: "seed-" + i })))};
+      isAuthenticated=false;
+    }
+  }catch(e){
+    currentPins=${JSON.stringify(SEEDED_PINS.map((p, i) => ({ ...p, id: "seed-" + i })))};
+    isAuthenticated=false;
   }
+  refreshBoard();
 }
 
+document.addEventListener('DOMContentLoaded',function(){
+  bindDragListeners();
+  bindMoveButtons();
+});
 load();`;
 
 function asset(pathname) {
@@ -326,6 +405,21 @@ export default {
     const session =
       token &&
       (await env.DB.prepare("SELECT * FROM sessions WHERE token=?").bind(token).first());
+
+    if (url.pathname.match(/^\/api\/pins\/[^/]+\/status$/) && req.method === "PATCH") {
+      if (!session) return json({ error: "unauthorized" }, 401);
+      const body = await req.json();
+      if (!body.status || !STATUSES.includes(body.status)) {
+        return json({ error: "invalid status", valid: STATUSES }, 400);
+      }
+      const pinId = url.pathname.split("/")[3];
+      await env.DB
+        .prepare("UPDATE pins SET status=? WHERE id=? AND user_id=?")
+        .bind(body.status, Number(pinId), session.user_id)
+        .run();
+      return json({ ok: true });
+    }
+
     if (!session) return json({ error: "unauthorized" }, 401);
     await ensureSeedPins(env.DB, session.user_id);
 
@@ -339,6 +433,7 @@ export default {
 
     if (url.pathname === "/api/pins" && req.method === "POST") {
       const body = await req.json();
+      const status = body.status && STATUSES.includes(body.status) ? body.status : "backlog";
       await env.DB
         .prepare("INSERT INTO pins(user_id,title,url,note,category,status) VALUES(?,?,?,?,?,?)")
         .bind(
@@ -347,22 +442,10 @@ export default {
           String(body.url || "").slice(0, 200),
           String(body.note || "").slice(0, 200),
           String(body.category || "").slice(0, 40),
-          "backlog",
+          status,
         )
         .run();
       return json({ ok: true }, 201);
-    }
-
-    if (/^\/api\/pins\/\d+\/status$/.test(url.pathname) && req.method === "PATCH") {
-      const id = Number(url.pathname.split("/")[3]);
-      const body = await req.json();
-      const newStatus = String(body.status || "").toLowerCase();
-      if (!STATUSES.includes(newStatus)) return json({ error: "invalid status" }, 400);
-      await env.DB
-        .prepare("UPDATE pins SET status=? WHERE id=? AND user_id=?")
-        .bind(newStatus, id, session.user_id)
-        .run();
-      return json({ ok: true });
     }
 
     if (url.pathname.startsWith("/api/pins/") && req.method === "PATCH") {
