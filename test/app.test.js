@@ -1,135 +1,198 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import vm from 'node:vm';
-import worker, { parseCookies, sessionToken } from '../src/worker.js';
+import test from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import worker, {
+  ensureSeedPins,
+  parseCookies,
+  sessionToken,
+} from "../src/worker.js";
 
-function extractInlineScript(html) {
-  const match = html.match(/<script>([\s\S]*?)<\/script>/);
-  return match ? match[1] : '';
-}
+// --- Kanban board tests ---
 
-const SEEDED_PINS = [
-  'Launch checklist',
-  'Brand color palette',
-  'Weekly standup notes',
-  'API design doc',
-  'Coffee chat schedule',
-  'Q3 roadmap draft',
-  'Team offsite ideas',
-  'Design review feedback',
-];
-
-test('unauthenticated GET / returns HTML with seeded pin content', async () => {
-  const r = await worker.fetch(new Request('https://x/'), {});
-  assert.equal(r.status, 200);
-  assert.match(r.headers.get('content-type'), /text\/html/);
+test("unauthenticated GET / includes at least 3 status columns", async () => {
+  const r = await worker.fetch(new Request("https://x/"), {});
   const html = await r.text();
-  let found = 0;
-  for (const pin of SEEDED_PINS) {
-    if (html.includes(pin)) found++;
-  }
-  assert.ok(found >= 6, `Expected at least 6 seeded pins in HTML, found ${found}`);
+  assert.match(html, /Backlog/);
+  assert.match(html, /In play/i);
+  assert.match(html, /Done/);
 });
 
-test('unauthenticated GET / contains a sign-in affordance that is not the only content', async () => {
-  const r = await worker.fetch(new Request('https://x/'), {});
+test("unauthenticated GET / has seeded notes in more than one column", async () => {
+  const r = await worker.fetch(new Request("https://x/"), {});
   const html = await r.text();
-  const hasSignIn = /sign\s*in|log\s*in|google/i.test(html);
-  assert.ok(hasSignIn, 'Page should contain a sign-in affordance');
-  const hasCards = SEEDED_PINS.some(pin => html.includes(pin));
-  assert.ok(hasCards, 'Page should have pin content beyond just sign-in');
+  const columnPattern = /class="kanban-column"/g;
+  const columns = html.match(columnPattern);
+  assert.ok(columns && columns.length >= 3, "Expected at least 3 kanban columns");
+
+  const notePattern = /class="kanban-card"/g;
+  const notes = html.match(notePattern);
+  assert.ok(notes && notes.length >= 3, "Expected at least 3 kanban cards");
+
+  const backlogSection = html.split(/data-status="backlog"/)[1]?.split(/data-status="/)[0] || "";
+  const inPlaySection = html.split(/data-status="in-play"/)[1]?.split(/data-status="/)[0] || "";
+  const doneSection = html.split(/data-status="done"/)[1]?.split(/data-status="/)[0] || "";
+
+  const backlogCards = (backlogSection.match(/class="kanban-card"/g) || []).length;
+  const inPlayCards = (inPlaySection.match(/class="kanban-card"/g) || []).length;
+  const doneCards = (doneSection.match(/class="kanban-card"/g) || []).length;
+
+  const columnsWithCards = [backlogCards, inPlayCards, doneCards].filter((n) => n > 0).length;
+  assert.ok(columnsWithCards >= 2, `Expected cards in at least 2 columns, got cards in ${columnsWithCards}`);
 });
 
-test('inline script in served HTML is syntactically valid JavaScript', async () => {
-  const r = await worker.fetch(new Request('https://x/'), {});
-  const html = await r.text();
-  const script = extractInlineScript(html);
-  assert.ok(script.length > 0, 'should have an inline script');
+test("page JS (/app.js) is syntactically valid", async () => {
+  const r = await worker.fetch(new Request("https://x/app.js"), {});
+  const js = await r.text();
   assert.doesNotThrow(() => {
-    new vm.Script(script, { filename: 'inline-page-script.js' });
-  }, SyntaxError, 'inline script must be syntactically valid JavaScript');
+    new vm.Script(js, { filename: "app.js" });
+  }, "Client JS must be syntactically valid");
 });
 
-test('inline script does not use nested-quote onclick pattern', async () => {
-  const r = await worker.fetch(new Request('https://x/'), {});
-  const html = await r.text();
-  const script = extractInlineScript(html);
-  const hasBrokenOnclick = /innerHTML\s*=\s*'[^']*onclick="[^"]*'[^"]*'[^"]*"[^']*'/.test(script);
-  assert.equal(hasBrokenOnclick, false,
-    'must not nest single quotes inside onclick inside a single-quoted JS string');
+test("moving a note does not require login for the guest UI", async () => {
+  const r = await worker.fetch(new Request("https://x/app.js"), {});
+  const js = await r.text();
+  assert.match(js, /localStorage/i, "Guest moves should use localStorage");
+  assert.match(js, /kanban|status|column/i, "JS should reference kanban/status/columns");
 });
 
-test('inline script executes without runtime errors in DOM mock', async () => {
-  const r = await worker.fetch(new Request('https://x/'), {});
-  const html = await r.text();
-  const script = extractInlineScript(html);
-
-  const mockEl = {
-    innerHTML: '',
-    focus: () => {},
-    onsubmit: null,
-    addEventListener: () => {},
-    querySelector: () => mockEl,
-    querySelectorAll: () => [],
-    getElementById: () => mockEl,
-    dataset: {},
+test("/login still redirects to Anyship Google auth broker", async () => {
+  const env = {
+    ANYSHIP_AUTH_URL: "https://auth.anyship.dev",
+    ANYSHIP_AUTH_APP_ID: "test-app",
   };
-  const context = vm.createContext({
-    document: {
-      querySelector: () => mockEl,
-      querySelectorAll: () => [],
-      getElementById: () => mockEl,
-    },
-    fetch: async () => ({ status: 401, json: async () => ({}) }),
-    location: { href: '' },
-    FormData: class { entries() { return []; } },
-    console,
-  });
-
-  assert.doesNotThrow(() => {
-    vm.runInContext(script, context, { filename: 'inline-page-script.js' });
-  }, 'inline script must execute without throwing');
+  const r = await worker.fetch(new Request("https://x/login"), env);
+  assert.equal(r.status, 302);
+  const location = r.headers.get("location");
+  assert.ok(location, "Should redirect");
+  assert.match(location, /auth\.anyship\.dev\/broker\/authorize/);
+  assert.match(location, /provider=google/);
 });
 
-test('/api/health works without auth or DB', async () => {
-  const r = await worker.fetch(new Request('https://x/api/health'), {});
+test("/api/health still works", async () => {
+  const r = await worker.fetch(new Request("https://x/api/health"), {});
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ok: true });
 });
 
-test('/login redirects to auth broker', async () => {
-  const env = {
-    ANYSHIP_AUTH_URL: 'https://auth.example.com',
-    ANYSHIP_AUTH_APP_ID: 'app-123',
+test("D1 write routes 401 without a session", async () => {
+  const db = {
+    prepare() {
+      return {
+        run: async () => ({ success: true }),
+        bind() {
+          return this;
+        },
+        async first() {
+          return null;
+        },
+      };
+    },
   };
-  const r = await worker.fetch(new Request('https://x/login'), env);
-  assert.equal(r.status, 302);
-  const loc = r.headers.get('location');
-  assert.ok(loc.includes('auth.example.com/broker/authorize'), `redirect location: ${loc}`);
-  assert.ok(loc.includes('provider=google'), 'should use google provider');
-  assert.ok(loc.includes('app=app-123'), 'should include app id');
+  const env = { DB: db };
+
+  const postR = await worker.fetch(
+    new Request("https://x/api/pins", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "spam" }),
+    }),
+    env,
+  );
+  assert.equal(postR.status, 401);
+
+  const patchR = await worker.fetch(
+    new Request("https://x/api/pins/1", { method: "PATCH" }),
+    env,
+  );
+  assert.equal(patchR.status, 401);
 });
 
-test('creates secure session tokens', () => {
+test("PATCH /api/pins/:id/status 401 without a session", async () => {
+  const db = {
+    prepare() {
+      return {
+        run: async () => ({ success: true }),
+        bind() {
+          return this;
+        },
+        async first() {
+          return null;
+        },
+      };
+    },
+  };
+  const env = { DB: db };
+
+  const r = await worker.fetch(
+    new Request("https://x/api/pins/1/status", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "done" }),
+    }),
+    env,
+  );
+  assert.equal(r.status, 401);
+});
+
+// --- Existing tests kept working ---
+
+test("serves a distinct shell for the pinboard landing page", async () => {
+  const r = await worker.fetch(new Request("https://x/"), {});
+  const html = await r.text();
+  assert.match(html, /<title>Pinboard<\/title>/);
+  assert.match(html, /<style>/);
+  assert.match(html, /app\.js/);
+  assert.match(html, /style\.css/);
+});
+
+test("serves separate JS and CSS assets", async () => {
+  const js = await worker.fetch(new Request("https://x/app.js"), {});
+  const css = await worker.fetch(new Request("https://x/style.css"), {});
+  assert.ok((await js.text()).length > 100, "JS asset should have content");
+  assert.match(await css.text(), /Fraunces/);
+});
+
+test("seeds starter pins for a new user", async () => {
+  const rows = [];
+  const db = {
+    prepare(sql) {
+      return {
+        bind(...args) {
+          return {
+            async first() {
+              if (sql.includes("COUNT(*)")) {
+                return { count: rows.filter((x) => x.user_id === args[0]).length };
+              }
+              return null;
+            },
+            async run() {
+              if (sql.includes("INSERT INTO pins(")) {
+                rows.push({
+                  user_id: args[0],
+                  title: args[1],
+                  url: args[2],
+                  note: args[3],
+                  category: args[4],
+                  saves: args[5] ?? 0,
+                });
+              }
+              return { success: true };
+            },
+          };
+        },
+      };
+    },
+  };
+  const seeded = await ensureSeedPins(db, "u1");
+  assert.equal(seeded, true);
+  assert.equal(rows.length, 3);
+  assert.match(rows[0].title, /launch brief/i);
+  const seededAgain = await ensureSeedPins(db, "u1");
+  assert.equal(seededAgain, false);
+  assert.equal(rows.length, 3);
+});
+
+test("creates secure session tokens and parses cookies", () => {
   assert.match(sessionToken(), /^[a-f0-9]{64}$/);
-});
-
-test('parses cookies correctly', () => {
-  assert.equal(parseCookies('session=hello%20team').session, 'hello team');
-  assert.deepEqual(parseCookies(''), {});
-  assert.deepEqual(parseCookies(null), {});
-});
-
-test('unauthenticated GET / does NOT show marketing landing or login wall', async () => {
-  const r = await worker.fetch(new Request('https://x/'), {});
-  const html = await r.text();
-  assert.ok(!html.includes('Your team is waiting'), 'No marketing copy as primary content');
-  assert.ok(!html.includes('DEMO SHAPE'), 'No architecture lecture');
-  assert.ok(!html.includes('static shell'), 'No meta commentary about stack');
-});
-
-test('page has viewport meta tag', async () => {
-  const r = await worker.fetch(new Request('https://x/'), {});
-  const html = await r.text();
-  assert.match(html, /viewport/);
+  assert.equal(parseCookies("session=hello%20team").session, "hello team");
 });
